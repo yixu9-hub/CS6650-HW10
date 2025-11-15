@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  shopping-cart-service:
+    build: ./shopping-cart-service
+    environment:
+      - RABBITMQ_URI=amqp://guest:guest@rabbitmq:5672/
+      - CCA_URL=http://credit-card-authorizer:8080/authorize
+    depends_on:
+      - rabbitmq
+
+  warehouse-consumer:
+    build: ./warehouse-consumer
+    environment:
+      - RABBITMQ_URI=amqp://guest:guest@rabbitmq:5672/
+      - WAREHOUSE_WORKERS=4
+    depends_on:
+      - rabbitmq
+
+  credit-card-authorizer:
+    build: ./credit-card-authorizer

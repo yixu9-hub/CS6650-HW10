@@ -10,36 +10,59 @@ import (
 	"strconv"
 	"strings"
 
+	amqp "github.com/rabbitmq/amqp091-go"
+
+	"shopping-cart-service/models"
 	"shopping-cart-service/storage"
 )
 
+// ErrorResponse represents a unified error response format.
 type ErrorResponse struct {
 	Error   string  `json:"error"`
 	Message string  `json:"message"`
 	Details *string `json:"details,omitempty"`
 }
 
+// Handler holds dependencies for the shopping cart service:
+// - storage layer
+// - credit card authorizer endpoint
+// - RabbitMQ channel and queue info
 type Handler struct {
-	store       *storage.MemoryStore
+	store       storage.Store
 	ccaURL      string
 	nextOrderID int
+
+	mqChannel *amqp.Channel
+	queueName string
 }
 
-func NewHandler(store *storage.MemoryStore, ccaURL string) *Handler {
+// OrderMessage represents the payload sent to RabbitMQ when an order is created.
+type OrderMessage struct {
+	OrderID int               `json:"order_id"`
+	CartID  int               `json:"cart_id"`
+	Items   []models.CartItem `json:"items"`
+}
+
+// NewHandler constructs the handler with storage, CCA URL, and RabbitMQ components.
+func NewHandler(store storage.Store, ccaURL string, ch *amqp.Channel, queueName string) *Handler {
 	return &Handler{
 		store:       store,
 		ccaURL:      ccaURL,
 		nextOrderID: 1,
+		mqChannel:   ch,
+		queueName:   queueName,
 	}
 }
 
+// RegisterRoutes maps the HTTP endpoints to handler functions.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/shopping-cart", h.handleCreateCart)
 	mux.HandleFunc("/shopping-carts/", h.handleCartOperations)
 }
 
+// handleCreateCart creates a new shopping cart.
 func (h *Handler) handleCreateCart(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
+	if r.Method != http.MethodPost {
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
@@ -65,28 +88,32 @@ func (h *Handler) handleCreateCart(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]int{"shopping_cart_id": cartID})
 }
 
+// handleCartOperations dispatches operations like addItem and checkout.
 func (h *Handler) handleCartOperations(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/shopping-carts/")
-	
+
 	if strings.HasSuffix(path, "/addItem") {
 		idStr := strings.TrimSuffix(path, "/addItem")
-		if r.Method != "POST" {
+		if r.Method != http.MethodPost {
 			h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 			return
 		}
 		h.handleAddItem(w, r, idStr)
+
 	} else if strings.HasSuffix(path, "/checkout") {
 		idStr := strings.TrimSuffix(path, "/checkout")
-		if r.Method != "POST" {
+		if r.Method != http.MethodPost {
 			h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 			return
 		}
 		h.handleCheckout(w, r, idStr)
+
 	} else {
 		h.writeError(w, http.StatusNotFound, "NOT_FOUND", "Endpoint not found")
 	}
 }
 
+// handleAddItem adds an item or increases its quantity in a shopping cart.
 func (h *Handler) handleAddItem(w http.ResponseWriter, r *http.Request, idStr string) {
 	cartID, err := strconv.Atoi(idStr)
 	if err != nil || cartID < 1 {
@@ -114,8 +141,7 @@ func (h *Handler) handleAddItem(w http.ResponseWriter, r *http.Request, idStr st
 		return
 	}
 
-	err = h.store.AddItem(cartID, payload.ProductID, payload.Quantity)
-	if err != nil {
+	if err := h.store.AddItem(cartID, payload.ProductID, payload.Quantity); err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			h.writeError(w, http.StatusNotFound, "CART_NOT_FOUND", "Shopping cart not found")
 			return
@@ -128,6 +154,7 @@ func (h *Handler) handleAddItem(w http.ResponseWriter, r *http.Request, idStr st
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleCheckout authorizes payment and publishes the order to RabbitMQ.
 func (h *Handler) handleCheckout(w http.ResponseWriter, r *http.Request, idStr string) {
 	cartID, err := strconv.Atoi(idStr)
 	if err != nil || cartID < 1 {
@@ -144,7 +171,7 @@ func (h *Handler) handleCheckout(w http.ResponseWriter, r *http.Request, idStr s
 		return
 	}
 
-	// Get cart
+	// Retrieve the shopping cart
 	cart, err := h.store.GetCart(cartID)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
@@ -161,25 +188,54 @@ func (h *Handler) handleCheckout(w http.ResponseWriter, r *http.Request, idStr s
 		return
 	}
 
-	// Authorize payment with CCA
+	// Contact CCA for payment authorization
 	authorized, err := h.authorizePayment(payload.CreditCardNumber)
 	if err != nil {
 		h.writeError(w, http.StatusBadRequest, "INVALID_CARD", err.Error())
 		return
 	}
-
 	if !authorized {
 		h.writeError(w, http.StatusPaymentRequired, "PAYMENT_DECLINED", "Payment was declined")
 		return
 	}
 
-	// Generate order ID
+	// Generate a new order ID
 	orderID := h.nextOrderID
 	h.nextOrderID++
 
-	// Clear cart
-	h.store.ClearCart(cartID)
-	
+	// Create the message payload to send to RabbitMQ
+	msg := OrderMessage{
+		OrderID: orderID,
+		CartID:  cartID,
+		Items:   cart.Items,
+	}
+
+	body, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("ERROR: failed to marshal order message: %v", err)
+		h.writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to enqueue order")
+		return
+	}
+
+	// Publish the message to RabbitMQ (fire-and-forget)
+	if err := h.mqChannel.Publish(
+		"",
+		h.queueName,
+		false,
+		false,
+		amqp.Publishing{
+			ContentType: "application/json",
+			Body:        body,
+		},
+	); err != nil {
+		log.Printf("ERROR: failed to publish order to RabbitMQ: %v", err)
+		h.writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to enqueue order")
+		return
+	}
+
+	// Clear the cart after successful order submission
+	_ = h.store.ClearCart(cartID)
+
 	log.Printf("Order %d created for cart %d with %d items", orderID, cartID, len(cart.Items))
 
 	w.Header().Set("Content-Type", "application/json")
@@ -187,6 +243,7 @@ func (h *Handler) handleCheckout(w http.ResponseWriter, r *http.Request, idStr s
 	json.NewEncoder(w).Encode(map[string]int{"order_id": orderID})
 }
 
+// authorizePayment calls the credit card authorizer service.
 func (h *Handler) authorizePayment(cardNumber string) (bool, error) {
 	reqBody, _ := json.Marshal(map[string]string{
 		"credit_card_number": cardNumber,
@@ -213,8 +270,9 @@ func (h *Handler) authorizePayment(cardNumber string) (bool, error) {
 	return false, fmt.Errorf("unexpected response from payment service")
 }
 
+// writeError writes a standardized error JSON response.
 func (h *Handler) writeError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(ErrorResponse{Error: code, Message: message})
+	_ = json.NewEncoder(w).Encode(ErrorResponse{Error: code, Message: message})
 }

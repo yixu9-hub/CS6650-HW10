@@ -1,5 +1,5 @@
-module shopping-cart-service
+module warehouse-consumer
 
-go 1.21
+go 1.25.1
 
 require github.com/rabbitmq/amqp091-go v1.10.0
