@@ -14,6 +14,9 @@ Local Load Testing Client
     ↓ AMQP
 【Warehouse Consumer Service】
 
+# 启动所有服务
+docker-compose up --build
+
 测试：
 # 1. 创建产品
 curl -X POST http://localhost:8080/product -H "Content-Type: application/json" -d '{"sku":"ABC123","manufacturer":"Acme","category_id":1,"weight":100,"some_other_id":1}'
