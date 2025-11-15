@@ -1,0 +1,17 @@
+# Example terraform.tfvars file
+# Copy this to terraform.tfvars and fill in your values
+
+aws_region = "us-east-1"
+
+# Replace with your VPC ID
+vpc_id = "vpc-xxxxxxxxxxxxxxxxx"
+
+# Replace with your subnet IDs (need at least 2 in different AZs)
+subnet_ids = [
+  "subnet-xxxxxxxxxxxxxxxxx",
+  "subnet-yyyyyyyyyyyyyyyyy"
+]
+
+product_service_port        = 8080
+shopping_cart_service_port  = 8081
+cca_service_port            = 8082

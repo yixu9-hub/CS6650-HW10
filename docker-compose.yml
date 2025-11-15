@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  product-service:
+    build:
+      context: ./src/product-service
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - SERVICE_NAME=product-service
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - ecommerce-network
+
+  shopping-cart-service:
+    build:
+      context: ./src/shopping-cart-service
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      - CCA_URL=http://credit-card-authorizer:8082
+    depends_on:
+      - credit-card-authorizer
+    networks:
+      - ecommerce-network
+
+  credit-card-authorizer:
+    build:
+      context: ./src/credit-card-authorizer
+      dockerfile: Dockerfile
+    ports:
+      - "8082:8082"
+    networks:
+      - ecommerce-network
+
+  product-service-bad:
+    build:
+      context: ./src/product-service-bad
+      dockerfile: Dockerfile
+    ports:
+      - "8083:8080"
+    environment:
+      - SERVICE_NAME=product-service-bad
+    networks:
+      - ecommerce-network
+
+networks:
+  ecommerce-network:
+    driver: bridge

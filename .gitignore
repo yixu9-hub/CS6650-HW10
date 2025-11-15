@@ -1,0 +1,23 @@
+# Go
+/bin/
+/obj/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.log
+vendor/
+*.out
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+
+# Docker / local
+docker-compose.override.yml
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,388 @@
+openapi: 3.0.3
+info:
+  title: E-commerce API
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: http://my-alb-xxx.us-east-1.elb.amazonaws.com
+    description: AWS deployment
+
+paths:
+  # Product Service Endpoints
+  /products/{productId}:
+    get:
+      tags:
+        - Product
+      summary: Get product by ID
+      description: Retrieve a product's details using its unique identifier
+      operationId: getProduct
+      parameters:
+        - name: productId
+          in: path
+          required: true
+          description: Unique identifier for the product
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+      responses:
+        '200':
+          description: Product found successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Product'
+        '404':
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /product:
+    post:
+      tags:
+        - Product
+      summary: Create a product, with the provided details
+      description: Create a product, with the provided details. Server creates the new product_id.
+      operationId: createProduct
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Product'
+      responses:
+        '201':
+          description: Product created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  product_id:
+                    type: integer
+                    format: int32
+                    description: Unique identifier for the created product
+        '400':
+          description: Invalid input data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # Shopping Cart Service Endpoints
+  /shopping-cart:
+    post:
+      tags:
+        - Shopping Cart
+      summary: Create a new shopping cart
+      description: Create a new shopping cart for a customer
+      operationId: createShoppingCart
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - customer_id
+              properties:
+                customer_id:
+                  type: integer
+                  format: int32
+                  minimum: 1
+                  description: Unique identifier for the customer
+      responses:
+        '201':
+          description: Shopping cart created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  shopping_cart_id:
+                    type: integer
+                    format: int32
+                    description: Unique identifier for the created shopping cart
+        '400':
+          description: Invalid input data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /shopping-carts/{shoppingCartId}/addItem:
+    post:
+      tags:
+        - Shopping Cart
+      summary: Add items to shopping cart
+      description: Add products with specified quantities to a shopping cart
+      operationId: addItemsToCart
+      parameters:
+        - name: shoppingCartId
+          in: path
+          required: true
+          description: Unique identifier for the shopping cart
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - product_id
+                - quantity
+              properties:
+                product_id:
+                  type: integer
+                  format: int32
+                  minimum: 1
+                  description: Unique identifier for the product
+                quantity:
+                  type: integer
+                  format: int32
+                  minimum: 1
+                  description: Number of items to add
+      responses:
+        '204':
+          description: Items added to cart successfully
+        '400':
+          description: Invalid input data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Shopping cart or product not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /shopping-carts/{shoppingCartId}/checkout:
+    post:
+      tags:
+        - Shopping Cart
+      summary: Checkout shopping cart
+      description: Process checkout for a shopping cart
+      operationId: checkoutCart
+      parameters:
+        - name: shoppingCartId
+          in: path
+          required: true
+          description: Unique identifier for the shopping cart
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - credit_card_number
+              properties:
+                credit_card_number:
+                  type: string
+                  description: Credit card number as string as groups of 4 digits with dashes (minus sign)
+                  example: "1234-5678-1234-5678"
+      responses:
+        '200':
+          description: Checkout processed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  order_id:
+                    type: integer
+                    format: int32
+                    description: Unique identifier for the created order
+        '400':
+          description: Invalid shopping cart state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Shopping cart not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+
+  # Credit Card Service Endpoints
+  /credit-card-authorizer/authorize:
+    post:
+      tags:
+        - Payments
+      summary: Authorize and process credit card payment, called by shoppinCart.checkout. Internal API
+      description: Process payment for a shopping cart using credit card information
+      operationId: processPayment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - credit_card_number
+              properties:
+                credit_card_number:
+                  type: string
+                  pattern: '^[0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{4}$'
+                  description: Credit card number as string as groups of 4 digits with dashes (minus sign)
+                  example: "1234-5678-1234-5678"
+      responses:
+        '200':
+          description: Payment authorized successfully
+        '400':
+          description: Invalid payment information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '402':
+          description: Payment declined
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  schemas:
+    Product:
+      type: object
+      required:
+        - product_id
+        - sku
+        - manufacturer
+        - category_id
+        - weight
+        - some_other_id
+      properties:
+        product_id:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Unique identifier for the product
+          example: 12345
+        sku:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Stock Keeping Unit - unique product code. 10 characters from the set {A-Z0-9}
+          example: "ABC123XYZ"
+        manufacturer:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Product manufacturer name
+          example: "Acme Corporation"
+        category_id:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Product category identifier
+          example: 456
+        weight:
+          type: integer
+          format: int32
+          minimum: 0
+          description: Product weight in grams
+          example: 1250
+        some_other_id:
+          type: integer
+          format: int32
+          minimum: 1
+          description: Additional identifier for product
+          example: 789
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error code
+          example: "INVALID_INPUT"
+        message:
+          type: string
+          description: Human-readable error message
+          example: "The provided input data is invalid"
+        details:
+          type: string
+          description: Additional error details
+          example: "Product ID must be a positive integer"
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+security:
+  - ApiKeyAuth: []
+  - BearerAuth: []
+
+tags:
+  - name: Products
+    description: Product management operations
+  - name: Shopping Cart
+    description: Shopping cart operations
+  - name: Warehouse
+    description: Warehouse and inventory operations
+  - name: Payments
+    description: Payment processing operations
