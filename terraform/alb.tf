@@ -1,3 +1,8 @@
+# =========================
+# 文件：terraform/alb.tf
+# 作用：Security Group + ALB + Target Groups + Listener + 规则
+# =========================
+
 # Security Group for ALB
 resource "aws_security_group" "alb" {
   name        = "ecommerce-alb-sg"
@@ -42,19 +47,24 @@ resource "aws_lb" "main" {
   subnets            = var.subnet_ids
 
   enable_deletion_protection = false
-  enable_http2              = true
+  enable_http2               = true
 
   tags = {
     Name = "ecommerce-alb"
   }
 }
 
+# =========================
 # Target Group for Product Service
+# =========================
 resource "aws_lb_target_group" "product" {
-  name     = "product-service-tg"
-  port     = var.product_service_port
-  protocol = "HTTP"
-  vpc_id   = var.vpc_id
+  name        = "product-service-tg"
+  port        = var.product_service_port
+  protocol    = "HTTP"
+  vpc_id      = var.vpc_id
+
+  # Fargate + awsvpc 必须用 ip
+  target_type = "ip"
 
   health_check {
     enabled             = true
@@ -74,12 +84,16 @@ resource "aws_lb_target_group" "product" {
   }
 }
 
+# =========================
 # Target Group for Shopping Cart Service
+# =========================
 resource "aws_lb_target_group" "shopping_cart" {
-  name     = "shopping-cart-service-tg"
-  port     = var.shopping_cart_service_port
-  protocol = "HTTP"
-  vpc_id   = var.vpc_id
+  name        = "shopping-cart-service-tg"
+  port        = var.shopping_cart_service_port
+  protocol    = "HTTP"
+  vpc_id      = var.vpc_id
+
+  target_type = "ip"
 
   health_check {
     enabled             = true
@@ -88,7 +102,7 @@ resource "aws_lb_target_group" "shopping_cart" {
     timeout             = 5
     interval            = 30
     path                = "/shopping-cart"
-    matcher             = "405"  # Method not allowed for GET, but service is up
+    matcher             = "405"  # GET /shopping-cart → 405，也算活着
   }
 
   load_balancing_algorithm_type = "weighted_random"
@@ -98,12 +112,16 @@ resource "aws_lb_target_group" "shopping_cart" {
   }
 }
 
+# =========================
 # Target Group for Credit Card Authorizer Service
+# =========================
 resource "aws_lb_target_group" "cca" {
-  name     = "cca-service-tg"
-  port     = var.cca_service_port
-  protocol = "HTTP"
-  vpc_id   = var.vpc_id
+  name        = "cca-service-tg"
+  port        = var.cca_service_port
+  protocol    = "HTTP"
+  vpc_id      = var.vpc_id
+
+  target_type = "ip"
 
   health_check {
     enabled             = true
@@ -111,8 +129,10 @@ resource "aws_lb_target_group" "cca" {
     unhealthy_threshold = 3
     timeout             = 5
     interval            = 30
-    path                = "/credit-card-authorizer/authorize"
-    matcher             = "405"  # Method not allowed for GET, but service is up
+
+    # ★ CHANGED: 直接打 OpenAPI 定义的路径
+    path    = "/credit-card-authorizer/authorize"
+    matcher = "200-499"  # GET 可能收到 400 / 405 / 200，统统当作 healthy
   }
 
   load_balancing_algorithm_type = "weighted_random"
@@ -193,6 +213,7 @@ resource "aws_lb_listener_rule" "cca" {
 
   condition {
     path_pattern {
+      # ★ CHANGED: 匹配 /credit-card-authorizer 开头的所有路径
       values = ["/credit-card-authorizer*"]
     }
   }

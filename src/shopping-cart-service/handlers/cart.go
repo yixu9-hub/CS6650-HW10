@@ -85,7 +85,7 @@ func (h *Handler) handleCreateCart(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]int{"shopping_cart_id": cartID})
+	_ = json.NewEncoder(w).Encode(map[string]int{"shopping_cart_id": cartID})
 }
 
 // handleCartOperations dispatches operations like addItem and checkout.
@@ -191,10 +191,12 @@ func (h *Handler) handleCheckout(w http.ResponseWriter, r *http.Request, idStr s
 	// Contact CCA for payment authorization
 	authorized, err := h.authorizePayment(payload.CreditCardNumber)
 	if err != nil {
+		// 400 场景（格式错、其他异常） → INVALID_CARD
 		h.writeError(w, http.StatusBadRequest, "INVALID_CARD", err.Error())
 		return
 	}
 	if !authorized {
+		// 402 场景（支付拒绝）
 		h.writeError(w, http.StatusPaymentRequired, "PAYMENT_DECLINED", "Payment was declined")
 		return
 	}
@@ -240,7 +242,7 @@ func (h *Handler) handleCheckout(w http.ResponseWriter, r *http.Request, idStr s
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]int{"order_id": orderID})
+	_ = json.NewEncoder(w).Encode(map[string]int{"order_id": orderID})
 }
 
 // authorizePayment calls the credit card authorizer service.
@@ -249,24 +251,29 @@ func (h *Handler) authorizePayment(cardNumber string) (bool, error) {
 		"credit_card_number": cardNumber,
 	})
 
+	// ✅ 关键：调用 YAML 里的路径
 	resp, err := http.Post(h.ccaURL+"/credit-card-authorizer/authorize", "application/json", bytes.NewBuffer(reqBody))
 	if err != nil {
 		return false, fmt.Errorf("failed to contact payment service")
 	}
 	defer resp.Body.Close()
 
+	// ✅ 400 → Invalid payment info（格式错）
 	if resp.StatusCode == http.StatusBadRequest {
 		return false, fmt.Errorf("invalid credit card format")
 	}
 
+	// ✅ 402 → Payment declined
 	if resp.StatusCode == http.StatusPaymentRequired {
-		return false, nil // Declined
+		return false, nil // Declined（业务正常拒绝）
 	}
 
+	// ✅ 200 → Authorized
 	if resp.StatusCode == http.StatusOK {
-		return true, nil // Authorized
+		return true, nil
 	}
 
+	// 任何其他状态码 → 异常
 	return false, fmt.Errorf("unexpected response from payment service")
 }
 

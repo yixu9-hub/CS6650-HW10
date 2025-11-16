@@ -1,4 +1,6 @@
-# Go
+##########################################
+# Go Build Artifacts
+##########################################
 /bin/
 /obj/
 *.exe
@@ -7,17 +9,65 @@
 *.so
 *.dylib
 *.log
-vendor/
 *.out
+*.test
+*.prof
 
-# IDE / Editor
+# Vendor (if using go mod vendor)
+/vendor/
+
+##########################################
+# Editor / IDE
+##########################################
 .vscode/
 .idea/
 *.swp
 
-# Docker / local
-docker-compose.override.yml
-
-# OS
+##########################################
+# OS Files
+##########################################
 .DS_Store
 Thumbs.db
+
+##########################################
+# Docker / Local Dev
+##########################################
+# Ignore ALL docker-compose files anywhere
+docker-compose.yml
+docker-compose.yaml
+docker-compose.override.yml
+docker-compose.local.yml
+**/docker-compose.yml
+**/docker-compose.yaml
+**/docker-compose.override.yml
+**/docker-compose.local.yml
+
+# Environment files
+*.env
+.env.*
+.envrc
+
+##########################################
+# Terraform
+##########################################
+.terraform/
+.terraform.lock.hcl
+terraform.tfstate
+terraform.tfstate.backup
+terraform.tfvars
+*.tfplan
+crash.log
+
+##########################################
+# RabbitMQ Local Data
+##########################################
+rabbitmq-data/
+rmq/
+mq/
+
+##########################################
+# AWS ECR / Build Cache
+##########################################
+*.tar
+**/cache/
+**/.cache/

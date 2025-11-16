@@ -1,17 +1,53 @@
-# Example terraform.tfvars file
-# Copy this to terraform.tfvars and fill in your values
+# ============================================================================
+# terraform.tfvars.example
+# Example variables file for CS6650 Homework 10
+# DO NOT PUT REAL AWS ACCOUNT IDs OR REAL ECR LINKS HERE
+# ============================================================================
 
-aws_region = "us-east-1"
+aws_region = "us-west-2"
 
-# Replace with your VPC ID
+# -------------------------------
+# Networking (example only)
+# -------------------------------
 vpc_id = "vpc-xxxxxxxxxxxxxxxxx"
 
-# Replace with your subnet IDs (need at least 2 in different AZs)
 subnet_ids = [
-  "subnet-xxxxxxxxxxxxxxxxx",
-  "subnet-yyyyyyyyyyyyyyyyy"
+  "subnet-aaaaaaaaaaaaaaaaa",
+  "subnet-bbbbbbbbbbbbbbbbb",
+  "subnet-ccccccccccccccccc",
+  "subnet-ddddddddddddddddd"
 ]
 
-product_service_port        = 8080
-shopping_cart_service_port  = 8081
-cca_service_port            = 8082
+# -------------------------------
+# ECR Images (example only)
+# Replace "ACCOUNT_ID" with your own AWS account ID
+# -------------------------------
+product_service_image       = "ACCOUNT_ID.dkr.ecr.us-west-2.amazonaws.com/product-service:latest"
+product_service_bad_image   = "ACCOUNT_ID.dkr.ecr.us-west-2.amazonaws.com/product-service-bad:latest"
+shopping_cart_service_image = "ACCOUNT_ID.dkr.ecr.us-west-2.amazonaws.com/shopping-cart-service:latest"
+cca_service_image           = "ACCOUNT_ID.dkr.ecr.us-west-2.amazonaws.com/credit-card-authorizer:latest"
+warehouse_service_image     = "ACCOUNT_ID.dkr.ecr.us-west-2.amazonaws.com/warehouse-consumer:latest"
+
+# RabbitMQ uses official Docker Hub (do NOT push to ECR)
+rabbitmq_service_image = "rabbitmq:3-management"
+
+# -------------------------------
+# ECS Desired Count
+# -------------------------------
+product_service_desired_count        = 2
+product_service_bad_desired_count    = 1
+shopping_cart_service_desired_count  = 1
+cca_service_desired_count            = 1
+rabbitmq_service_desired_count       = 1
+warehouse_service_desired_count      = 1
+
+# -------------------------------
+# RabbitMQ URI (example only)
+# Replace with the actual ECS task public/private IP after deployment
+# -------------------------------
+rabbitmq_uri = "amqp://guest:guest@RABBITMQ_IP:5672/"
+
+# -------------------------------
+# Warehouse Worker Threads
+# -------------------------------
+warehouse_workers = 4

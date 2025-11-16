@@ -25,11 +25,15 @@ func NewHandler() *Handler {
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
+	// ✅ OpenAPI 里定义的路径
 	mux.HandleFunc("/credit-card-authorizer/authorize", h.handleAuthorize)
+
+	// （可选）给你自己 curl 用的短路径，不影响 YAML 一致性
+	mux.HandleFunc("/authorize", h.handleAuthorize)
 }
 
 func (h *Handler) handleAuthorize(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
+	if r.Method != http.MethodPost {
 		h.writeError(w, http.StatusMethodNotAllowed, "METHOD_NOT_ALLOWED", "Method not allowed")
 		return
 	}
@@ -43,29 +47,39 @@ func (h *Handler) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate credit card format: 4 groups of 4 digits separated by dashes
+	// 校验格式：4 组 4 位数字，用短横线分隔
 	validFormat := regexp.MustCompile(`^\d{4}-\d{4}-\d{4}-\d{4}$`)
 	if !validFormat.MatchString(payload.CreditCardNumber) {
+		// ✅ YAML: 400 Invalid payment information
 		h.writeError(w, http.StatusBadRequest, "INVALID_FORMAT", "Credit card number must be in format: 1234-5678-9012-3456")
 		return
 	}
 
-	// Simulate authorization: 90% authorized, 10% declined
+	// 90% 授权，10% 拒绝
 	authorized := h.rng.Float32() < 0.9
 
 	if !authorized {
-		h.writeError(w, http.StatusPaymentRequired, "PAYMENT_DECLINED", "Payment was declined")
+		// ✅ YAML: 402 Payment declined
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusPaymentRequired)
+		_ = json.NewEncoder(w).Encode(ErrorResponse{
+			Error:   "PAYMENT_DECLINED",
+			Message: "Payment was declined",
+		})
 		return
 	}
 
-	// Success
+	// ✅ YAML: 200 Payment authorized successfully
+	// Body YAML 没规定，你可以随意；这里给个简单 JSON
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "Authorized"})
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"status": "Authorized",
+	})
 }
 
 func (h *Handler) writeError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(ErrorResponse{Error: code, Message: message})
+	_ = json.NewEncoder(w).Encode(ErrorResponse{Error: code, Message: message})
 }
