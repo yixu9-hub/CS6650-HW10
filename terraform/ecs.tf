@@ -133,13 +133,11 @@ resource "aws_ecs_task_definition" "shopping_cart" {
       ]
       essential = true
       environment = [
-        # ★ CHANGED: 这里只是 ALB 的基础 URL，不带任何 path
-        #     SCS 代码里会拼：CCA_URL + "/credit-card-authorizer/authorize"
         {
           name  = "CCA_URL"
-          value = "http://${aws_lb.main.dns_name}"
+          # ✅ 正确写法：先闭合 ${aws_lb.main.dns_name}，再拼 path
+          value = "http://${aws_lb.main.dns_name}/credit-card-authorizer/authorize"
         },
-        # RABBITMQ_URI：SCS 用它向队列发布消息
         {
           name  = "RABBITMQ_URI"
           value = var.rabbitmq_uri

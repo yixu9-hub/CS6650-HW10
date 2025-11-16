@@ -246,35 +246,40 @@ func (h *Handler) handleCheckout(w http.ResponseWriter, r *http.Request, idStr s
 }
 
 // authorizePayment calls the credit card authorizer service.
+//
+// 协议和 OpenAPI 对齐：
+//   - 200 OK  → 授权成功
+//   - 400 Bad Request → 卡号格式错误
+//   - 402 Payment Required → 授权被拒
 func (h *Handler) authorizePayment(cardNumber string) (bool, error) {
-	reqBody, _ := json.Marshal(map[string]string{
-		"credit_card_number": cardNumber,
-	})
+    reqBody, _ := json.Marshal(map[string]string{
+        "credit_card_number": cardNumber,
+    })
 
-	// ✅ 关键：调用 YAML 里的路径
-	resp, err := http.Post(h.ccaURL+"/credit-card-authorizer/authorize", "application/json", bytes.NewBuffer(reqBody))
-	if err != nil {
-		return false, fmt.Errorf("failed to contact payment service")
-	}
-	defer resp.Body.Close()
+    // ★ 关键改动：不再自己拼路径，直接用环境变量里的完整 URL
+    resp, err := http.Post(h.ccaURL, "application/json", bytes.NewBuffer(reqBody))
+    if err != nil {
+        return false, fmt.Errorf("failed to contact payment service")
+    }
+    defer resp.Body.Close()
 
-	// ✅ 400 → Invalid payment info（格式错）
-	if resp.StatusCode == http.StatusBadRequest {
-		return false, fmt.Errorf("invalid credit card format")
-	}
+    // ★ 为了 debug 更清楚，把 status code 带进错误信息里
+    if resp.StatusCode == http.StatusBadRequest {
+        return false, fmt.Errorf("invalid credit card format")
+    }
 
-	// ✅ 402 → Payment declined
-	if resp.StatusCode == http.StatusPaymentRequired {
-		return false, nil // Declined（业务正常拒绝）
-	}
+    if resp.StatusCode == http.StatusPaymentRequired {
+        // 402 → 拒绝
+        return false, nil
+    }
 
-	// ✅ 200 → Authorized
-	if resp.StatusCode == http.StatusOK {
-		return true, nil
-	}
+    if resp.StatusCode == http.StatusOK {
+        // 200 → 授权通过
+        return true, nil
+    }
 
-	// 任何其他状态码 → 异常
-	return false, fmt.Errorf("unexpected response from payment service")
+    // 其他情况，一律认为是“payment service 返回了意外状态码”
+    return false, fmt.Errorf("unexpected response from payment service (status %d)", resp.StatusCode)
 }
 
 // writeError writes a standardized error JSON response.

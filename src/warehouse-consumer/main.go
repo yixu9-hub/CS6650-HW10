@@ -12,20 +12,21 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
+// 和 Shopping Cart Service 发送的 JSON 对齐
 type OrderItem struct {
-	ProductID string `json:"productId"`
-	Quantity  int    `json:"quantity"`
+	ProductID int `json:"product_id"`
+	Quantity  int `json:"quantity"`
 }
 
 type OrderMessage struct {
-	OrderID string      `json:"orderId"`
+	OrderID int         `json:"order_id"`
 	CartID  int         `json:"cart_id"`
 	Items   []OrderItem `json:"items"`
 }
 
 var (
 	totalOrders      int64
-	countByProductID = make(map[string]int64)
+	countByProductID = make(map[int]int64)
 	mu               sync.Mutex
 )
 
@@ -39,36 +40,26 @@ func handleOrder(msg OrderMessage) {
 	}
 }
 
-func worker(conn *amqp.Connection, id int, wg *sync.WaitGroup) {
+func worker(id int, msgs <-chan amqp.Delivery, wg *sync.WaitGroup) {
 	defer wg.Done()
-
-	ch, err := conn.Channel()
-	if err != nil {
-		log.Printf("[worker %d] channel error: %v", id, err)
-		return
-	}
-	defer ch.Close()
-
-	ch.Qos(10, 0, false)
-
-	msgs, err := ch.Consume("orders", "", false, false, false, false, nil)
-	if err != nil {
-		log.Printf("[worker %d] consume error: %v", id, err)
-		return
-	}
-
-	log.Printf("[worker %d] start consuming", id)
+	log.Printf("[worker %d] started", id)
 
 	for d := range msgs {
 		var order OrderMessage
 		if err := json.Unmarshal(d.Body, &order); err != nil {
-			d.Ack(false)
+			log.Printf("[worker %d] invalid JSON, ack and skip: %v", id, err)
+			_ = d.Ack(false)
 			continue
 		}
 
 		handleOrder(order)
-		d.Ack(false)
+
+		if err := d.Ack(false); err != nil {
+			log.Printf("[worker %d] ack failed: %v", id, err)
+		}
 	}
+
+	log.Printf("[worker %d] stopped (msgs channel closed)", id)
 }
 
 func main() {
@@ -76,32 +67,64 @@ func main() {
 	if uri == "" {
 		uri = "amqp://guest:guest@rabbitmq:5672/"
 	}
+	log.Printf("Connecting to RabbitMQ at %s", uri)
 
 	conn, err := amqp.Dial(uri)
 	if err != nil {
-		panic(err)
+		// ❗ 不再 Fatalf，只打印错误并挂起，方便在本地或 CloudWatch 看日志
+		log.Printf("Failed to connect to RabbitMQ: %v", err)
+		waitForSignal()
+		return
 	}
 	defer conn.Close()
+	log.Println("Connected to RabbitMQ")
 
-	// 并发 worker 数量（压测时会调）
+	ch, err := conn.Channel()
+	if err != nil {
+		log.Printf("Failed to open channel: %v", err)
+		waitForSignal()
+		return
+	}
+	defer ch.Close()
+
+	// 这里先不 QueueDeclare，完全依赖 Shopping Cart 那边声明好的 "orders" 队列，
+	// 避免 durable / autoDelete 参数不一致导致 PRECONDITION_FAILED。
+	if err := ch.Qos(10, 0, false); err != nil {
+		log.Printf("Failed to set QoS: %v", err)
+		// 继续运行，只是没有预取优化
+	}
+
+	msgs, err := ch.Consume(
+		"orders", // 队列名要和 SCS 使用的一致
+		"",
+		false, // 手动 ACK
+		false,
+		false,
+		false,
+		nil,
+	)
+	if err != nil {
+		log.Printf("Failed to start consuming: %v", err)
+		waitForSignal()
+		return
+	}
+
 	workerCount := 4
 	if val := os.Getenv("WAREHOUSE_WORKERS"); val != "" {
-		n, _ := strconv.Atoi(val)
-		if n > 0 {
+		if n, err := strconv.Atoi(val); err == nil && n > 0 {
 			workerCount = n
 		}
 	}
+	log.Printf("Starting %d workers", workerCount)
 
 	var wg sync.WaitGroup
 	wg.Add(workerCount)
 
 	for i := 0; i < workerCount; i++ {
-		go worker(conn, i, &wg)
+		go worker(i, msgs, &wg)
 	}
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	waitForSignal()
 
 	log.Println("Shutting down warehouse...")
 
@@ -109,6 +132,12 @@ func main() {
 	log.Printf("Total Order number: %d", totalOrders)
 	mu.Unlock()
 
-	conn.Close()
 	wg.Wait()
+	log.Println("Warehouse stopped cleanly")
+}
+
+func waitForSignal() {
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
 }
