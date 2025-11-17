@@ -134,6 +134,16 @@ resource "aws_ecs_task_definition" "warehouse" {
           value = tostring(var.warehouse_workers)   # NEW: worker 数量
         }
       ]
+
+      # ★★★ 关键：打开 awslogs 日志 ★★★
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.warehouse.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "ecs"
+        }
+      }
     }
   ])
 }
@@ -159,4 +169,14 @@ resource "aws_ecs_service" "warehouse" {
   depends_on = [
     aws_ecs_service.rabbitmq
   ]
+}
+
+
+resource "aws_cloudwatch_log_group" "warehouse" {
+  name              = "/ecs/warehouse-consumer"
+  retention_in_days = 3
+
+  tags = {
+    Name = "warehouse-consumer-logs"
+  }
 }

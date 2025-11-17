@@ -104,8 +104,27 @@ resource "aws_ecs_task_definition" "product_bad" {
           value = "product-service-bad"
         }
       ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = "/ecs/product-service-bad"
+          awslogs-region        = var.aws_region
+          awslogs-stream-prefix = "ecs"
+        }
+      }
     }
   ])
+}
+
+# logs.tf（你也可以直接加到 ecs.tf 里）
+resource "aws_cloudwatch_log_group" "product_bad" {
+  name              = "/ecs/product-service-bad"
+  retention_in_days = 7
+
+  tags = {
+    Name = "ecs-product-service-bad-logs"
+  }
 }
 
 # =========================================
