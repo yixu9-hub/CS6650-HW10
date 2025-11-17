@@ -130,7 +130,7 @@ resource "aws_lb_target_group" "cca" {
     timeout             = 5
     interval            = 30
 
-    # ★ CHANGED: 直接打 OpenAPI 定义的路径
+    # 直接打 OpenAPI 定义的路径
     path    = "/credit-card-authorizer/authorize"
     matcher = "200-499"  # GET 可能收到 400 / 405 / 200，统统当作 healthy
   }
@@ -142,7 +142,9 @@ resource "aws_lb_target_group" "cca" {
   }
 }
 
+# =========================
 # Listener on port 80
+# =========================
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = "80"
@@ -158,6 +160,80 @@ resource "aws_lb_listener" "http" {
     }
   }
 }
+
+# =====================================================
+# Header-based routing（优先级更高，先匹配 Header）
+# =====================================================
+
+# Product via header: X-Service: product
+resource "aws_lb_listener_rule" "product_header" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 50
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.product.arn
+  }
+
+  condition {
+    http_header {
+      http_header_name = "X-Service"
+      values           = ["product"]
+    }
+  }
+
+  tags = {
+    Name = "product-header-routing-rule"
+  }
+}
+
+# Shopping Cart via header: X-Service: cart
+resource "aws_lb_listener_rule" "shopping_cart_header" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 60
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.shopping_cart.arn
+  }
+
+  condition {
+    http_header {
+      http_header_name = "X-Service"
+      values           = ["cart"]
+    }
+  }
+
+  tags = {
+    Name = "shoppingcart-header-routing-rule"
+  }
+}
+
+# CCA via header: X-Service: cca
+resource "aws_lb_listener_rule" "cca_header" {
+  listener_arn = aws_lb_listener.http.arn
+  priority     = 70
+
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.cca.arn
+  }
+
+  condition {
+    http_header {
+      http_header_name = "X-Service"
+      values           = ["cca"]
+    }
+  }
+
+  tags = {
+    Name = "cca-header-routing-rule"
+  }
+}
+
+# =====================================================
+# Path-based routing（优先级低一些，作为 fallback）
+# =====================================================
 
 # Listener Rule for Product Service - path-based routing
 resource "aws_lb_listener_rule" "product" {
@@ -213,7 +289,7 @@ resource "aws_lb_listener_rule" "cca" {
 
   condition {
     path_pattern {
-      # ★ CHANGED: 匹配 /credit-card-authorizer 开头的所有路径
+      # 匹配 /credit-card-authorizer 开头的所有路径
       values = ["/credit-card-authorizer*"]
     }
   }
